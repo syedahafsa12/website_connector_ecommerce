@@ -133,7 +133,12 @@ async function chat(messages: Msg[], tools: ToolDef[], toolChoice: "auto" | "non
     } catch {
       throw new AgentError("The Agent could not reach its language model.");
     }
-    if ((res.status === 429 || res.status >= 500) && attempt < 3) { await new Promise((r) => setTimeout(r, 2000 * (attempt + 1))); continue; }
+    if ((res.status === 429 || res.status >= 500) && attempt < 3) {
+      const ra = Number(res.headers.get("retry-after"));
+      await new Promise((r) => setTimeout(r, Math.min(Number.isFinite(ra) && ra > 0 ? ra * 1000 : 2000 * (attempt + 1), 8000)));
+      continue;
+    }
+    if (res.status === 429) throw new AgentError("The language model is rate-limited right now (too many requests, or the model account's quota is used up). Wait a minute and try again; if it keeps happening, check the plan and usage limits of the Mistral account.");
     if (res.status === 401 || res.status === 403) throw new AgentError("The Agent's language-model credentials were rejected.");
     if (!res.ok) throw new AgentError(`The language model returned an error (HTTP ${res.status}).`);
     const j = (await res.json()) as { choices?: Array<{ message?: { content?: unknown; tool_calls?: ToolCall[] } }> };
