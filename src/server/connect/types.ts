@@ -82,6 +82,8 @@ export type ChatMsg = { role: "user" | "assistant"; content: string };
 
 export type Connection = {
   id: string;
+  /** Bumped each time the state is sealed; the newest copy wins when state comes back from the browser. */
+  rev?: number;
   input: string;
   url?: string;
   origin?: string;

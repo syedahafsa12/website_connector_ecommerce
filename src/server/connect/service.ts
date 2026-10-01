@@ -4,6 +4,7 @@ import * as cheerio from "cheerio";
 import { discover } from "./discovery";
 import { runOp, sanitize, type Getter, type OpArgs, type OpResult } from "./adapters";
 import { signApproval, tokenFor, verifyApproval, type Approval } from "./trust";
+import { open, seal } from "./state";
 import { SiteError, assertOk, newId, parseSiteUrl, safeGet, type TraceEntry } from "./net";
 import { ACTION_CAPS, CAPS, IMPACT, SCOPES, scopeOf, type AuditEntry, type CapState, type Cap, type Connection, type ConnStatus, type Flag, type Scope } from "./types";
 
@@ -21,6 +22,13 @@ export function getConn(id: string) {
   const c = conns.get(id);
   if (!c) throw new Error("Unknown connection id.");
   return c;
+}
+/** Take back state the browser holds (sealed by this server). Newer than what this instance has → adopt it. */
+export function adopt(blob: unknown) {
+  const c = open(blob);
+  if (!c) return;
+  const have = conns.get(c.id);
+  if (!have || (have.rev ?? 0) < (c.rev ?? 0)) conns.set(c.id, c);
 }
 export function resetAll() {
   conns.clear();
@@ -410,6 +418,7 @@ export function view(conn: Connection) {
     url: conn.url,
     host: conn.host,
     name: conn.siteName ?? conn.host ?? conn.input.slice(0, 40),
+    state: (conn.rev = (conn.rev ?? 0) + 1, seal(conn)),
     ecommerce: conn.ecommerce,
     classification: conn.classification,
     platform: conn.platform,

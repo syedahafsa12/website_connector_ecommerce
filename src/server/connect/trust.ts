@@ -3,8 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 /** Server-only secret. Never sent to a browser or to a model. */
-function secret(): string {
+export function secret(): string {
   if (process.env.CONNECT_SECRET) return process.env.CONNECT_SECRET;
+  // Serverless instances have no shared disk: without a fixed secret every instance would invent its own and nothing could be verified.
+  if (process.env.VERCEL) throw new Error("CONNECT_SECRET is not set on the server. Add it to the project environment variables (any long random string) and redeploy.");
   const file = path.join(process.cwd(), ".connect-secret");
   try { return fs.readFileSync(file, "utf8").trim(); } catch { /* first run */ }
   const s = randomBytes(32).toString("hex");

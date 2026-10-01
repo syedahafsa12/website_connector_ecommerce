@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { runAgent } from "@/server/connect/agent";
-import { approvePurchase, authorize, getConn, listViews, rediscover, recordVisit, resetAll, startConnection, verifyOwnership, view, warmPreview } from "@/server/connect/service";
+import { adopt, approvePurchase, authorize, getConn, listViews, rediscover, recordVisit, resetAll, startConnection, verifyOwnership, view, warmPreview } from "@/server/connect/service";
 import { SCOPES } from "@/server/connect/types";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +11,8 @@ export async function POST(req: Request, { params }: { params: { action: string 
   const body = await req.json().catch(() => ({}));
   const id = String(body.id ?? "");
   try {
+    // Serverless: this instance may never have seen the connection. Reopen what the browser holds (sealed by this server).
+    for (const s of [body.state, ...(Array.isArray(body.states) ? body.states.slice(0, 10) : [])]) adopt(s);
     switch (params.action) {
       case "start":
         return NextResponse.json({ connection: view(await startConnection(String(body.url ?? ""), new URL(req.url).origin)) });

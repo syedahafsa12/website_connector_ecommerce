@@ -8,8 +8,13 @@ type Decision = { state: "pending" | "confirming" | "done" | "cancelled" | "erro
 type Turn = { user: string; reply: string; products: AgentProduct[]; comparison?: CompareRow[]; steps: AgentResult["steps"]; approval?: PendingApproval; tools: AgentResult["tools"]; mode: AgentResult["mode"]; decision?: Decision };
 type Phase = "home" | "checking" | "store" | "verify" | "verified" | "authorize" | "connecting" | "connected" | "agent";
 
+// Sealed per-connection state returned by the server; handed back so any server instance can continue the flow.
+const sealed = new Map<string, { state: string; trusted: boolean }>();
+
 async function post<T>(action: string, body: object = {}): Promise<T> {
-  const res = await fetch(`/api/connect/${action}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const id = (body as { id?: string }).id;
+  const withState = id ? { ...body, state: sealed.get(id)?.state, states: [...sealed].filter(([k, v]) => k !== id && v.trusted).map(([, v]) => v.state) } : body;
+  const res = await fetch(`/api/connect/${action}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(withState) });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error ?? "Something went wrong");
   return json;
@@ -77,7 +82,8 @@ export default function ConnectPage() {
 
   const sel = conns.find((c) => c.id === selId) ?? null;
   const trustedStores = [...new Map(conns.filter((c) => c.trust === "trusted").reverse().map((c) => [c.url, c] as const)).values()];
-  const upsert = (c: View) => setConns((l) => (l.some((x) => x.id === c.id) ? l.map((x) => (x.id === c.id ? c : x)) : [c, ...l]));
+  const upsert = (c: View) => { sealed.set(c.id, { state: c.state, trusted: c.trust === "trusted" }); upsertList(c); };
+  const upsertList = (c: View) => setConns((l) => (l.some((x) => x.id === c.id) ? l.map((x) => (x.id === c.id ? c : x)) : [c, ...l]));
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const run = async (name: string, fn: () => Promise<void>) => {
     if (busy) return;
