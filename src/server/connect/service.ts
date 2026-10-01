@@ -411,6 +411,7 @@ export function view(conn: Connection) {
     host: conn.host,
     name: conn.siteName ?? conn.host ?? conn.input.slice(0, 40),
     ecommerce: conn.ecommerce,
+    classification: conn.classification,
     platform: conn.platform,
     site: conn.site,
     preview: previewOf(conn),

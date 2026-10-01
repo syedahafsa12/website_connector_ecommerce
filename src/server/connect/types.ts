@@ -1,4 +1,5 @@
 import type { TraceEntry } from "./net";
+import type { Classification } from "./classify";
 
 /** The platform's small common capability model. Everything a site exposes is normalized into this. */
 export const CAPS = {
@@ -89,6 +90,8 @@ export type Connection = {
   /** Operator-allowed local origin (CONNECT_ALLOW_LOCAL); loopback permitted but NOT trusted. */
   local?: boolean;
   ecommerce: boolean;
+  /** What the site publicly exposes (descriptive). Not a trust or authorization input. */
+  classification?: Classification;
   platform?: string;
   site: { icon?: string; image?: string; description?: string };
   /** Platform-owned demo sites (loopback allowed, verification can be simulated). */

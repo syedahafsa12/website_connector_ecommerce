@@ -3,6 +3,7 @@ import { z } from "zod";
 import { SiteError, assertOk } from "./net";
 import { jsonLdNodes, loadCatalog, safeImage, structuredPageCatalog, stripHtml, type Getter } from "./adapters";
 import type { Candidate, Cap, Connection } from "./types";
+import { applyOpinion, classify, groupTemplates, internalPaths, modelSecondOpinion, pageFacts, type PageFacts, type Profile } from "./classify";
 
 /**
  * Platform vocabulary: the only capability ids a manifest may use (with common aliases), the scope each belongs to,
@@ -85,10 +86,20 @@ export async function discover(conn: Connection, html: string, get: Getter): Pro
   conn.signals = [];
   conn.discoveryMethods = [];
   conn.ecommerce = false;
+  conn.classification = undefined;
   conn.platform = undefined;
   const note = (s: string) => conn.signals.push(s);
   const ev = (step: string, ok: boolean, detail: string) => conn.evidence.push({ step, ok, detail });
   const rel = (href?: string) => safeImage(href, origin);
+  // One bounded, same-origin page sample shared by product-page probing and classification (each URL is fetched at most once).
+  const fetched = new Map<string, Promise<string | null>>();
+  const fetchPage = (u: string, purpose: string) => {
+    let r = fetched.get(u);
+    if (!r) fetched.set(u, (r = get(u, purpose, "text/html").then((f) => (f.status === 200 ? f.body : null)).catch((e) => { if (e instanceof SiteError) return null; throw e; })));
+    return r;
+  };
+  let smP: Promise<string[]> | undefined;
+  const sitemap = () => (smP ??= sitemapUrls(origin, conn.url!, get, note));
 
   // ---- site identity (for the store preview) ----
   conn.site = {
@@ -211,17 +222,19 @@ export async function discover(conn: Connection, html: string, get: Getter): Pro
     $("a[href]").each((_, el) => {
       try { const u = new URL($(el).attr("href")!, conn.url); if (u.origin === origin && PRODUCT_PATH.test(u.pathname)) found.add(u.origin + u.pathname); } catch { /* ignore */ }
     });
-    if (found.size < 3) for (const u of await sitemapProductUrls(origin, conn.url!, get, note)) found.add(u);
+    if (found.size < 3) {
+      const listed = (await sitemap()).filter((u) => PRODUCT_PATH.test(new URL(u).pathname)).slice(0, 400);
+      if (listed.length) note(`Sitemap lists ${listed.length}+ product pages`);
+      for (const u of listed) found.add(u);
+    }
     const all = [...found];
     // sample evenly across the list so we don't only see one corner of the catalog
     const pages = all.length <= 4 ? all : [0, 1, 2, 3].map((i) => all[Math.floor((i * all.length) / 4)]!);
     if (pages.length) {
       const items = [];
       for (const pu of pages) {
-        try {
-          const f = await get(pu, "discovery:product-page", "text/html");
-          if (f.status === 200) items.push(...structuredPageCatalog(f.body, origin).items);
-        } catch (e) { if (!(e instanceof SiteError)) throw e; }
+        const body = await fetchPage(pu, "discovery:product-page");
+        if (body) items.push(...structuredPageCatalog(body, origin).items);
       }
       if (items.length) {
         conn.cache.set("cat:json-ld", { at: Date.now(), value: items });
@@ -233,6 +246,9 @@ export async function discover(conn: Connection, html: string, get: Getter): Pro
     } else ev("Product pages / sitemap", false, "no product URLs found on the page, robots.txt or sitemap");
   }
 
+  // ---- 6. classification: what does this site expose? (descriptive only; never read by verification, authorization or the gateway) ----
+  await classifySite(conn, html, $, { get, fetched, fetchPage, sitemap, note, ev });
+
   conn.discoveryMethods = [...new Set(conn.candidates.map((c) => c.via))];
   if (!conn.platform && conn.ecommerce) conn.platform = "Online store";
   ev("Result", conn.discoveryMethods.length > 0, conn.discoveryMethods.length ? `usable via ${conn.discoveryMethods.join(", ")}` : conn.ecommerce ? "looks like a store, but no machine-readable commerce data was found" : "not recognised as an online store");
@@ -241,8 +257,65 @@ export async function discover(conn: Connection, html: string, get: Getter): Pro
 
 const locs = (xml: string) => [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/g)].map((m) => m[1]!);
 
-/** Product-looking URLs from robots.txt/sitemap.xml, descending one level into sitemap indexes (preferring the entered locale). */
-async function sitemapProductUrls(origin: string, entry: string, get: Getter, note: (s: string) => void): Promise<string[]> {
+type Sampler = {
+  get: Getter;
+  fetched: Map<string, Promise<string | null>>;
+  fetchPage: (u: string, purpose: string) => Promise<string | null>;
+  sitemap: () => Promise<string[]>;
+  note: (s: string) => void;
+  ev: (step: string, ok: boolean, detail: string) => void;
+};
+
+const MAX_SAMPLE_PAGES = 6;
+
+/** Build an evidence profile from the homepage plus a small sample of the site's own pages, classify it, and record the result. */
+async function classifySite(conn: Connection, html: string, _$: cheerio.CheerioAPI, s: Sampler): Promise<void> {
+  const origin = conn.origin!;
+  const home = pageFacts(html, conn.url!, origin);
+  const homePaths = internalPaths(html, conn.url!, origin);
+  const smUrls = await s.sitemap();
+  const smPaths = smUrls.map((u) => new URL(u).pathname);
+  const linkTemplates = groupTemplates(homePaths);
+  const sitemapTemplates = groupTemplates(smPaths);
+
+  // Sample one page from each of the most repeated page structures (links first, then sitemap), never the whole site.
+  // The dominant structure gets a few pages spread across it (so differences between listings, e.g. sellers, are visible).
+  const pick = (paths: string[], t: { template: string }[]) => t.flatMap((x, i) => {
+    const of = paths.filter((p) => groupTemplates([p])[0]?.template === x.template);
+    const n = i === 0 ? 3 : 1;
+    return Array.from({ length: Math.min(n, of.length) }, (_, j) => of[Math.floor((j * of.length) / Math.min(n, of.length))]!);
+  });
+  const want = [...pick(homePaths, linkTemplates.slice(0, 3)), ...pick(smPaths, sitemapTemplates.slice(0, 3))];
+  for (const path of want) {
+    if (s.fetched.size >= MAX_SAMPLE_PAGES) break;
+    const u = origin + path;
+    if (!s.fetched.has(u)) await s.fetchPage(u, "discovery:sample-page");
+  }
+  const samples: PageFacts[] = [];
+  for (const [u, p] of s.fetched) { const b = await p; if (b && samples.length < MAX_SAMPLE_PAGES) samples.push(pageFacts(b, u, origin)); }
+
+  const profile: Profile = {
+    host: conn.host ?? "", home, samples, platform: conn.platform,
+    machineReadableCommerce: conn.candidates.some((c) => !c.rejected && !!c.cap),
+    linkTemplates, sitemapTemplates, sitemapTotal: smUrls.length,
+    datedUrls: [...homePaths, ...smPaths].filter((p) => /\/(19|20)\d{2}\/\d{1,2}(\/|$)/.test(p)).length,
+  };
+  const { ambiguity, ...det } = classify(profile);
+  let result = det;
+  if (ambiguity.ambiguous) {
+    const op = await modelSecondOpinion(profile, det);
+    if (op) result = applyOpinion(det, op, profile);
+    else s.note(`Classification evidence is limited (${ambiguity.reason}); no model second opinion used.`);
+  }
+  conn.classification = result;
+  // The page-level wording checks above only steer which public endpoints are worth probing; what the site IS comes from the evidence profile.
+  conn.ecommerce = (result.classification === "ECOMMERCE" || result.classification === "MARKETPLACE") && result.confidence >= 0.5;
+  s.note(`Classification: ${result.classification} (${Math.round(result.confidence * 100)}%) from ${1 + samples.length} page(s) and ${smUrls.length} sitemap URL(s)`);
+  s.ev("Classification", result.classification !== "UNKNOWN", `${result.classification} · ${Math.round(result.confidence * 100)}% · ${result.evidence.slice(0, 3).join("; ") || "no evidence"}`);
+}
+
+/** URLs from robots.txt/sitemap.xml, descending one level into sitemap indexes (preferring the entered locale). */
+async function sitemapUrls(origin: string, entry: string, get: Getter, note: (s: string) => void): Promise<string[]> {
   const seeds = new Set<string>();
   try {
     const f = await get(`${origin}/robots.txt`, "discovery:robots", "text/plain");
@@ -265,8 +338,8 @@ async function sitemapProductUrls(origin: string, entry: string, get: Getter, no
       xml = pick ? await fetchXml(pick) : null;
       if (!xml) continue;
     }
-    const urls = locs(xml).filter((u) => sameOrigin(u) && PRODUCT_PATH.test(new URL(u).pathname)).slice(0, 400);
-    if (urls.length) { note(`Sitemap lists ${urls.length}+ product pages`); return urls; }
+    const urls = locs(xml).filter(sameOrigin).slice(0, 1000);
+    if (urls.length) return urls;
   }
   return [];
 }

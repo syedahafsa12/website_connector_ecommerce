@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { AgentProduct, AgentResult, Cell, CompareRow, PendingApproval } from "@/server/connect/agent";
-import { ACCESS, badge, Brand, Drawer, Flow, formatPrice, friendlyError, FRIENDLY, Icon, TONE, type View } from "./ui";
+import { ACCESS, badge, Brand, detected, Drawer, Flow, formatPrice, friendlyError, FRIENDLY, Icon, TONE, type View } from "./ui";
 
 type Decision = { state: "pending" | "confirming" | "done" | "cancelled" | "error"; order?: { id: string; status: string; paymentStatus?: string; total?: number; currency?: string; note?: string }; error?: string };
 type Turn = { user: string; reply: string; products: AgentProduct[]; comparison?: CompareRow[]; steps: AgentResult["steps"]; approval?: PendingApproval; tools: AgentResult["tools"]; mode: AgentResult["mode"]; decision?: Decision };
@@ -118,6 +118,7 @@ export default function ConnectPage() {
     try { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied(""), 1400); } catch { /* clipboard unavailable */ }
   };
 
+  const det = sel ? detected(sel) : null;
   const groups = sel ? foundGroups(sel).filter((g) => g.id !== "commerce" || sel.capabilities.some((c) => c.cap === "cart.add" && c.state !== "rejected")) : [];
   const picked = groups.filter((g) => !off.includes(g.scope));
 
@@ -291,10 +292,11 @@ export default function ConnectPage() {
             )}
             {sel.trust === "public" && <div className="cx-callout violet"><Icon n="shield" s={17} /><span>Ownership hasn’t been verified, so this isn’t a trusted merchant connection. You can explore the public data, but nothing can be done on the owner’s behalf.</span></div>}
             {sel.status === "REQUIRES_VERIFICATION" && <div className="cx-callout amber"><Icon n="lock" s={17} /><span>Before we can create a trusted connection, you’ll need to prove you control this website.</span></div>}
-            {sel.status === "UNSUPPORTED" && <div className="cx-callout"><Icon n="alert" s={17} /><span>{sel.capabilities.length > 0 ? "This site advertises capabilities, but none passed our checks, so nothing can be connected." : sel.ecommerce ? "This looks like a store, but it doesn’t publish product data the platform can read yet." : "This doesn’t look like an online store, and no commerce data was found."}</span></div>}
+            {sel.status === "UNSUPPORTED" && det && sel.capabilities.length === 0 && <div className="cx-callout violet"><Icon n="shield" s={17} /><span><b>{det.title}</b><br />{det.text}</span></div>}
+            {sel.status === "UNSUPPORTED" && !(det && sel.capabilities.length === 0) && <div className="cx-callout"><Icon n="alert" s={17} /><span>{sel.capabilities.length > 0 ? "This site advertises capabilities, but none passed our checks, so nothing can be connected." : sel.ecommerce ? "This looks like a store, but it doesn’t publish product data the platform can read yet." : sel.classification?.blocked ? "This website has bot protection. It showed our automated, read-only request a challenge page instead of its real content, so we can’t tell what it is. We never try to bypass bot protection. If you own this site, you can still prove ownership." : sel.classification?.classification === "UNKNOWN" ? "We couldn’t read enough of this website to tell what it is — it may block automated access or render only in a browser. Nothing was assumed." : "This doesn’t look like an online store, and no commerce data was found."}</span></div>}
             <div className="cx-cta">
               {sel.status === "UNSUPPORTED" ? (
-                <><button className="cx-btn" onClick={fresh}>Try another website</button><button className="cx-btn ghost" onClick={() => setDrawer(true)}>Why?</button></>
+                <>{det?.provable && <button className="cx-btn" onClick={() => setPhase("verify")}>Prove ownership <Icon n="arrow" s={15} /></button>}<button className={det?.provable ? "cx-btn ghost" : "cx-btn"} onClick={fresh}>Try another website</button><button className="cx-btn ghost" onClick={() => setDrawer(true)}>Why?</button></>
               ) : (
                 <>
                   <button className="cx-btn" onClick={() => setPhase("verify")}>{sel.trust === "public" ? "Verify ownership" : "Continue"} <Icon n="arrow" s={15} /></button>

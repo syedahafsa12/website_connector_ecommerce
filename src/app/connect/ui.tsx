@@ -59,9 +59,28 @@ export function badge(v: View): { tone: Tone; label: string; sub: string } {
     case "PUBLIC_DATA_DISCOVERED": return { tone: "violet", label: "Public data", sub: "Not verified" };
     case "REQUIRES_VERIFICATION": return { tone: "amber", label: "Verification required", sub: "Ready to verify" };
     case "REQUIRES_AUTHORIZATION": return { tone: "blue", label: "Authorization needed", sub: "Ownership verified" };
-    case "UNSUPPORTED": return { tone: "gray", label: "No commerce found", sub: "Nothing to connect" };
+    case "UNSUPPORTED": {
+      const k = v.classification?.classification;
+      if (k === "ECOMMERCE" || k === "MARKETPLACE") return { tone: "violet", label: k === "MARKETPLACE" ? "Marketplace detected" : "Ecommerce detected", sub: "Not verified · not trusted" };
+      if (k === "SERVICE") return { tone: "violet", label: "Service business detected", sub: "Not verified · not trusted" };
+      if (k === "CONTENT") return { tone: "gray", label: "Content site detected", sub: "Nothing to connect" };
+      if (k === "UNKNOWN") return v.classification?.blocked ? { tone: "amber", label: "Bot protection", sub: "Couldn’t read this site" } : { tone: "gray", label: "Couldn’t identify", sub: "Not enough readable content" };
+      return { tone: "gray", label: "No commerce found", sub: "Nothing to connect" };
+    }
     default: return { tone: "red", label: "Couldn’t connect", sub: friendlyError(v).title };
   }
+}
+
+/** What public discovery recognised. Descriptive only: it is never a trust or authorization state. */
+export function detected(v: View): { title: string; text: string; provable: boolean } | null {
+  const c = v.classification;
+  if (!c || c.confidence < 0.5) return null;
+  const why = c.evidence.slice(0, 3).join("; ");
+  const tail = " Ownership has not been verified. This is not a trusted connection.";
+  if (c.classification === "ECOMMERCE" || c.classification === "MARKETPLACE") return { title: "ECOMMERCE / MARKETPLACE DETECTED", text: `Public commerce signals were discovered (${why}).${tail}`, provable: true };
+  if (c.classification === "SERVICE") return { title: "SERVICE BUSINESS DETECTED", text: `Public service signals were discovered (${why}).${tail}`, provable: true };
+  if (c.classification === "CONTENT") return { title: "CONTENT WEBSITE DETECTED", text: `This looks like a content website (${why}). There is no commerce to connect.`, provable: false };
+  return null;
 }
 
 export function friendlyError(v: View): { title: string; hint: string } {
@@ -69,7 +88,13 @@ export function friendlyError(v: View): { title: string; hint: string } {
     case "DNS_FAILED": return { title: "We couldn’t find that website", hint: "Check the address for typos." };
     case "TIMEOUT": return { title: "That website took too long to respond", hint: "It may be down or blocking automated access." };
     case "REDIRECT_BLOCKED": return { title: "That address redirects to another site", hint: "We only follow redirects within the same site." };
-    case "HTTP_ERROR": return { title: "The website declined our request", hint: "It may require sign-in or block automated access. We don’t try to bypass that." };
+    case "HTTP_ERROR": {
+      const guard = /bot protection/.test(v.fatal?.message ?? "");
+      const by = /server: ([^)]+)/.exec(v.fatal?.message ?? "")?.[1];
+      return guard
+        ? { title: "This website has bot protection", hint: `It refused our automated, read-only request${by ? ` (protection layer: ${by})` : ""}, so we couldn’t read the site to tell what it is. We never try to bypass bot protection. You can still connect it if you own it: add the ownership tag, or ask the site to allow our request.` }
+        : { title: "The website declined our request", hint: "It may require sign-in or block automated access. We don’t try to bypass that." };
+    }
     case "TLS_ERROR": return { title: "We couldn’t establish a secure connection", hint: "The site’s certificate could not be trusted." };
     case "INVALID_URL": case "UNSUPPORTED_SCHEME": case "CREDENTIALS_IN_URL": case "NONSTANDARD_PORT": case "BLOCKED_ADDRESS":
       return { title: "That isn’t a public website address", hint: "Enter a normal https:// address." };
