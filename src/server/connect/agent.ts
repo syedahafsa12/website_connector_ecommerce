@@ -1,4 +1,3 @@
-import { llm } from "./llm";
 import type { CatalogItem } from "./adapters";
 import { audit, evaluate, getConn, invoke, trustedConnections, type CallResult } from "./service";
 import { type Cap, type Checkout, type Connection } from "./types";
@@ -123,10 +122,10 @@ export function systemPrompt(conn: Connection, mall: boolean, peers: Connection[
 // Model transport (server-side only; the key never leaves this process)
 // ---------------------------------------------------------------------------------------------
 async function chat(messages: Msg[], tools: ToolDef[], toolChoice: "auto" | "none" = "auto"): Promise<Msg> {
-  const cfg = llm();
-  if (!cfg) throw new AgentError("The Agent is not configured: set DEEPSEEK_API_KEY (or MISTRAL_API_KEY) on the server.");
-  const { key, base } = cfg;
-  const body = JSON.stringify({ model: cfg.model, messages, tools, tool_choice: tools.length ? toolChoice : undefined, temperature: 0.2, max_tokens: 1000 });
+  const key = process.env.MISTRAL_API_KEY;
+  if (!key) throw new AgentError("The Agent is not configured: MISTRAL_API_KEY is missing on the server.");
+  const base = (process.env.MISTRAL_BASE_URL ?? "https://api.mistral.ai").replace(/\/$/, "");
+  const body = JSON.stringify({ model: process.env.MISTRAL_MODEL ?? "mistral-medium-latest", messages, tools, tool_choice: tools.length ? toolChoice : undefined, temperature: 0.2, max_tokens: 1000 });
   for (let attempt = 0; attempt < 4; attempt++) {
     let res: Response;
     try {
@@ -139,7 +138,7 @@ async function chat(messages: Msg[], tools: ToolDef[], toolChoice: "auto" | "non
       await new Promise((r) => setTimeout(r, Math.min(Number.isFinite(ra) && ra > 0 ? ra * 1000 : 2000 * (attempt + 1), 8000)));
       continue;
     }
-    if (res.status === 429) throw new AgentError("The language model is rate-limited right now (too many requests, or the model account's quota is used up). Wait a minute and try again; if it keeps happening, check the plan and usage limits of the model provider account.");
+    if (res.status === 429) throw new AgentError("The language model is rate-limited right now (too many requests, or the model account's quota is used up). Wait a minute and try again; if it keeps happening, check the plan and usage limits of the Mistral account.");
     if (res.status === 401 || res.status === 403) throw new AgentError("The Agent's language-model credentials were rejected.");
     if (!res.ok) throw new AgentError(`The language model returned an error (HTTP ${res.status}).`);
     const j = (await res.json()) as { choices?: Array<{ message?: { content?: unknown; tool_calls?: ToolCall[] } }> };
