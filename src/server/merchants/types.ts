@@ -25,6 +25,7 @@ export interface MerchantRow {
   connector_type: ConnectorType;
   connector_config: RestConnectorConfig | McpConnectorConfigDb | WebConnectorConfigDb;
   is_adversarial_demo: boolean;
+  owner_id: string | null;
   created_at: string;
   updated_at: string;
 }

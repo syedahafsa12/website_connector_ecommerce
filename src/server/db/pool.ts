@@ -77,6 +77,32 @@ export async function withMerchantScope<T>(
   }
 }
 
+/**
+ * Runs `fn` scoped to one authenticated platform user — used by profile,
+ * payment-method, approval, and saved-item endpoints so isolation is enforced
+ * by PostgreSQL (via the `*_self`/`*_owner` RLS policies in
+ * migrations/002_agent_mall_foundation.sql), not just an application-level
+ * `WHERE user_id = ...`.
+ */
+export async function withUserScope<T>(
+  userId: string,
+  fn: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query("begin");
+    await client.query("select set_config('app.current_user_id', $1, true)", [userId]);
+    const result = await fn(client);
+    await client.query("commit");
+    return result;
+  } catch (err) {
+    await client.query("rollback");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function closePool(): Promise<void> {
   if (pool) {
     await pool.end();

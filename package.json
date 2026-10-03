@@ -17,6 +17,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "@modelcontextprotocol/sdk": "^1.9.0",
+    "@supabase/supabase-js": "^2.117.2",
     "cheerio": "^1.0.0",
     "dotenv": "^16.4.5",
     "next": "^14.2.15",
