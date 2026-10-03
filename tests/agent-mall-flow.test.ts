@@ -60,16 +60,16 @@ describe("full flow: signup -> search -> results -> compare -> approval -> merch
     const sessionId = searchBody.sessionId as string;
     expect(sessionId).toBeTruthy();
 
-    const northstar = merchants["northstar-running"];
-    const vertex = merchants["vertex-athletics"];
-    const northstarOffer = searchBody.offers.find((o: any) => o.offer.merchantId === northstar.id && o.offer.productId === "np-001");
-    const vertexOffer = searchBody.offers.find((o: any) => o.offer.merchantId === vertex.id && o.offer.productId === "va-001");
-    expect(northstarOffer).toBeTruthy();
-    expect(vertexOffer).toBeTruthy();
+    const cadence = merchants["cadence-cycles"];
+    const luna = merchants["luna-apparel"];
+    const cadenceOffer = searchBody.offers.find((o: any) => o.offer.merchantId === cadence.id && o.offer.productId === "bike-101");
+    const lunaOffer = searchBody.offers.find((o: any) => o.offer.merchantId === luna.id && o.offer.productId === "premium-hoodie-v23");
+    expect(cadenceOffer).toBeTruthy();
+    expect(lunaOffer).toBeTruthy();
 
     // 3. compare — the two candidates side by side.
     const compareRes = await compare(
-      post("http://test.local/api/agent/compare", { sessionId, items: [{ merchantId: northstar.id, productId: "np-001" }, { merchantId: vertex.id, productId: "va-001" }] }, shopper),
+      post("http://test.local/api/agent/compare", { sessionId, items: [{ merchantId: cadence.id, productId: "bike-101" }, { merchantId: luna.id, productId: "premium-hoodie-v23" }] }, shopper),
     );
     expect(compareRes.status).toBe(200);
     const compareBody = await compareRes.json();
@@ -78,11 +78,11 @@ describe("full flow: signup -> search -> results -> compare -> approval -> merch
     // The shopper picks Northstar. Visiting it is gated: the agent cannot
     // just navigate there on its own — it must request approval first, and
     // the merchant-visit endpoint refuses without an approved one.
-    const blockedRes = await visitMerchant(post(`http://test.local/api/merchants/${northstar.id}/visit`, { approvalId: "00000000-0000-0000-0000-000000000000" }, shopper), { params: { id: northstar.id } });
+    const blockedRes = await visitMerchant(post(`http://test.local/api/merchants/${cadence.id}/visit`, { approvalId: "00000000-0000-0000-0000-000000000000" }, shopper), { params: { id: cadence.id } });
     expect(blockedRes.status).toBe(403);
 
     // 4. approval — request, then list it back as pending.
-    const approvalRes = await createApproval(post("http://test.local/api/approvals", { actionType: "merchant_visit", merchantId: northstar.id, sessionId }, shopper));
+    const approvalRes = await createApproval(post("http://test.local/api/approvals", { actionType: "merchant_visit", merchantId: cadence.id, sessionId }, shopper));
     expect(approvalRes.status).toBe(201);
     const { approval } = await approvalRes.json();
     expect(approval.status).toBe("pending");
@@ -102,14 +102,14 @@ describe("full flow: signup -> search -> results -> compare -> approval -> merch
     expect(reDecideRes.status).toBe(404);
 
     // 5. merchant visit — now that it's approved, navigation is recorded as a unique visit.
-    const firstVisitRes = await visitMerchant(post(`http://test.local/api/merchants/${northstar.id}/visit`, { approvalId: approval.id }, shopper), { params: { id: northstar.id } });
+    const firstVisitRes = await visitMerchant(post(`http://test.local/api/merchants/${cadence.id}/visit`, { approvalId: approval.id }, shopper), { params: { id: cadence.id } });
     expect(firstVisitRes.status).toBe(200);
     const firstVisit = await firstVisitRes.json();
     expect(firstVisit.isNewUniqueVisit).toBe(true);
     expect(firstVisit.visitPackage.visitsUsed).toBeGreaterThan(0);
 
     // 6. the same shopper "visiting" again under the same approval/package must NOT create a second unique visit.
-    const secondVisitRes = await visitMerchant(post(`http://test.local/api/merchants/${northstar.id}/visit`, { approvalId: approval.id }, shopper), { params: { id: northstar.id } });
+    const secondVisitRes = await visitMerchant(post(`http://test.local/api/merchants/${cadence.id}/visit`, { approvalId: approval.id }, shopper), { params: { id: cadence.id } });
     expect(secondVisitRes.status).toBe(200);
     const secondVisit = await secondVisitRes.json();
     expect(secondVisit.isNewUniqueVisit).toBe(false);
@@ -118,10 +118,10 @@ describe("full flow: signup -> search -> results -> compare -> approval -> merch
 
     // 7. a different shopper visiting the same merchant IS a new unique visit.
     const otherShopper = await createTestUser("flow-shopper-2");
-    const otherApprovalRes = await createApproval(post("http://test.local/api/approvals", { actionType: "merchant_visit", merchantId: northstar.id }, otherShopper));
+    const otherApprovalRes = await createApproval(post("http://test.local/api/approvals", { actionType: "merchant_visit", merchantId: cadence.id }, otherShopper));
     const { approval: otherApproval } = await otherApprovalRes.json();
     await approve(post(`http://test.local/api/approvals/${otherApproval.id}/approve`, {}, otherShopper), { params: { id: otherApproval.id } });
-    const otherVisitRes = await visitMerchant(post(`http://test.local/api/merchants/${northstar.id}/visit`, { approvalId: otherApproval.id }, otherShopper), { params: { id: northstar.id } });
+    const otherVisitRes = await visitMerchant(post(`http://test.local/api/merchants/${cadence.id}/visit`, { approvalId: otherApproval.id }, otherShopper), { params: { id: cadence.id } });
     const otherVisit = await otherVisitRes.json();
     expect(otherVisit.isNewUniqueVisit).toBe(true);
     expect(otherVisit.visit.id).not.toBe(firstVisit.visit.id);
@@ -130,33 +130,33 @@ describe("full flow: signup -> search -> results -> compare -> approval -> merch
 
   it("rejects a pending approval, and a rejected approval never unlocks a visit", async () => {
     const shopper = await createTestUser("flow-rejector");
-    const northstar = merchants["northstar-running"];
-    const approvalRes = await createApproval(post("http://test.local/api/approvals", { actionType: "merchant_visit", merchantId: northstar.id }, shopper));
+    const cadence = merchants["cadence-cycles"];
+    const approvalRes = await createApproval(post("http://test.local/api/approvals", { actionType: "merchant_visit", merchantId: cadence.id }, shopper));
     const { approval } = await approvalRes.json();
 
     const rejectRes = await reject(post(`http://test.local/api/approvals/${approval.id}/reject`, {}, shopper), { params: { id: approval.id } });
     expect((await rejectRes.json()).approval.status).toBe("rejected");
 
-    const visitRes = await visitMerchant(post(`http://test.local/api/merchants/${northstar.id}/visit`, { approvalId: approval.id }, shopper), { params: { id: northstar.id } });
+    const visitRes = await visitMerchant(post(`http://test.local/api/merchants/${cadence.id}/visit`, { approvalId: approval.id }, shopper), { params: { id: cadence.id } });
     expect(visitRes.status).toBe(403);
   });
 
   it("one shopper's approval can't be used to visit as another shopper, or against a different merchant", async () => {
     const owner = await createTestUser("flow-owner");
     const intruder = await createTestUser("flow-intruder");
-    const northstar = merchants["northstar-running"];
-    const vertex = merchants["vertex-athletics"];
+    const cadence = merchants["cadence-cycles"];
+    const luna = merchants["luna-apparel"];
 
-    const approvalRes = await createApproval(post("http://test.local/api/approvals", { actionType: "merchant_visit", merchantId: northstar.id }, owner));
+    const approvalRes = await createApproval(post("http://test.local/api/approvals", { actionType: "merchant_visit", merchantId: cadence.id }, owner));
     const { approval } = await approvalRes.json();
     await approve(post(`http://test.local/api/approvals/${approval.id}/approve`, {}, owner), { params: { id: approval.id } });
 
     // another user can't even see it (getApproval is scoped by user_id), so the visit attempt 403s
-    const asIntruder = await visitMerchant(post(`http://test.local/api/merchants/${northstar.id}/visit`, { approvalId: approval.id }, intruder), { params: { id: northstar.id } });
+    const asIntruder = await visitMerchant(post(`http://test.local/api/merchants/${cadence.id}/visit`, { approvalId: approval.id }, intruder), { params: { id: cadence.id } });
     expect(asIntruder.status).toBe(403);
 
     // the owner can't reuse their own approved merchant_visit approval against a different merchant
-    const wrongMerchant = await visitMerchant(post(`http://test.local/api/merchants/${vertex.id}/visit`, { approvalId: approval.id }, owner), { params: { id: vertex.id } });
+    const wrongMerchant = await visitMerchant(post(`http://test.local/api/merchants/${luna.id}/visit`, { approvalId: approval.id }, owner), { params: { id: luna.id } });
     expect(wrongMerchant.status).toBe(403);
   });
 });

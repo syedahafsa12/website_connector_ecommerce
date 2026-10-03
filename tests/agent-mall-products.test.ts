@@ -57,9 +57,8 @@ describe("POST /api/agent/search — normalized cross-merchant search", () => {
     expect(body.sessionId).toBeTruthy();
 
     const bySlugOfferCount = new Map(body.merchants.map((m: any) => [m.merchantId, m.offers.length]));
-    expect(bySlugOfferCount.get(merchants["northstar-running"].id)).toBeGreaterThan(0);
-    expect(bySlugOfferCount.get(merchants["vertex-athletics"].id)).toBeGreaterThan(0);
-    expect(bySlugOfferCount.get(merchants["urban-services"].id)).toBeGreaterThan(0);
+    expect(bySlugOfferCount.get(merchants["cadence-cycles"].id)).toBe(10); // real Cadence Cycles catalog
+    expect(bySlugOfferCount.get(merchants["luna-apparel"].id)).toBe(8); // real Luna Apparel catalog
 
     // every offer is in the normalized shape the frontend is told to expect
     for (const entry of body.offers) {
@@ -85,63 +84,74 @@ describe("POST /api/agent/search — normalized cross-merchant search", () => {
   it("deterministically filters by price (no LLM round trip needed)", async () => {
     // Blank query = "browse every catalog"; maxPrice is passed as a structured
     // filter rather than folded into connector-level keyword search, since
-    // the demo REST/MCP connectors match `query` against product titles
+    // the demo REST connector matches `query` against product titles
     // verbatim and would otherwise return nothing for a full sentence.
-    const res = await search(postJson("http://test.local/api/agent/search", { query: "", filters: { maxPrice: 140 } }, shopper));
+    const res = await search(postJson("http://test.local/api/agent/search", { query: "", filters: { maxPrice: 100 } }, shopper));
     expect(res.status).toBe(200);
     const body = await res.json();
     const selected = body.offers.filter((o: any) => o.verdict === "selected");
-    expect(selected.every((o: any) => o.offer.price.amount <= 140)).toBe(true);
-    const rejectedOverBudget = body.offers.find((o: any) => o.offer.price.amount > 140);
+    expect(selected.length).toBeGreaterThan(0);
+    expect(selected.every((o: any) => o.offer.price.amount <= 100)).toBe(true);
+    const rejectedOverBudget = body.offers.find((o: any) => o.offer.price.amount > 100);
     expect(rejectedOverBudget.verdict).toBe("rejected");
     expect(rejectedOverBudget.reasons.join(" ")).toMatch(/exceeds/);
   });
 });
 
 describe("GET /api/agent/products/[merchantId]/[productId]", () => {
-  it("fetches one normalized product live from its merchant", async () => {
-    const northstar = merchants["northstar-running"];
-    const req = new NextRequest(`http://test.local/api/agent/products/${northstar.id}/np-001`, { headers: authHeader(shopper) });
-    const res = await getProduct(req, { params: { merchantId: northstar.id, productId: "np-001" } });
+  it("fetches one normalized product live from Cadence Cycles (real catalog)", async () => {
+    const cadence = merchants["cadence-cycles"];
+    const req = new NextRequest(`http://test.local/api/agent/products/${cadence.id}/bike-101`, { headers: authHeader(shopper) });
+    const res = await getProduct(req, { params: { merchantId: cadence.id, productId: "bike-101" } });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.offer).toMatchObject({ merchantId: northstar.id, productId: "np-001", title: "Northstar Pulse Runner" });
+    expect(body.offer).toMatchObject({ merchantId: cadence.id, productId: "bike-101", title: "Verdant City Cruiser", price: { amount: 429, currency: "USD" } });
     expect(body.offer.image).toMatch(/^https?:\/\//);
   });
 
+  it("fetches one normalized product live from Luna Apparel (real catalog)", async () => {
+    const luna = merchants["luna-apparel"];
+    const req = new NextRequest(`http://test.local/api/agent/products/${luna.id}/premium-hoodie-v23`, { headers: authHeader(shopper) });
+    const res = await getProduct(req, { params: { merchantId: luna.id, productId: "premium-hoodie-v23" } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.offer).toMatchObject({ merchantId: luna.id, productId: "premium-hoodie-v23", title: "Premium Hoodie V23", price: { amount: 88, currency: "USD" } });
+    expect(body.offer.image).toContain("lunastore-wine.vercel.app"); // real asset URL from the live site, not a placeholder
+  });
+
   it("reports an error (not a thrown exception) for an unknown product", async () => {
-    const northstar = merchants["northstar-running"];
-    const req = new NextRequest(`http://test.local/api/agent/products/${northstar.id}/does-not-exist`, { headers: authHeader(shopper) });
-    const res = await getProduct(req, { params: { merchantId: northstar.id, productId: "does-not-exist" } });
+    const cadence = merchants["cadence-cycles"];
+    const req = new NextRequest(`http://test.local/api/agent/products/${cadence.id}/does-not-exist`, { headers: authHeader(shopper) });
+    const res = await getProduct(req, { params: { merchantId: cadence.id, productId: "does-not-exist" } });
     expect(res.status).toBe(404);
   });
 });
 
 describe("POST /api/agent/compare", () => {
-  it("builds a side-by-side from live per-merchant data across connector types", async () => {
-    const northstar = merchants["northstar-running"];
-    const vertex = merchants["vertex-athletics"];
-    const urban = merchants["urban-services"];
+  it("builds a side-by-side from live per-merchant data across Cadence Cycles and Luna Apparel", async () => {
+    const cadence = merchants["cadence-cycles"];
+    const luna = merchants["luna-apparel"];
     const res = await compare(
       postJson(
         "http://test.local/api/agent/compare",
-        { items: [{ merchantId: northstar.id, productId: "np-001" }, { merchantId: vertex.id, productId: "va-001" }, { merchantId: urban.id, productId: "us-001" }] },
+        { items: [{ merchantId: cadence.id, productId: "bike-101" }, { merchantId: luna.id, productId: "premium-hoodie-v23" }] },
         shopper,
       ),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.comparison).toHaveLength(3);
+    expect(body.comparison).toHaveLength(2);
     expect(body.comparison.every((c: any) => !c.error && c.offer)).toBe(true);
-    expect(body.comparison.map((c: any) => c.offer.source)).toEqual(["rest", "mcp", "web"]);
+    expect(body.comparison.map((c: any) => c.offer.merchantName)).toEqual(["Cadence Cycles", "Luna Apparel"]);
+    expect(body.comparison.map((c: any) => c.offer.source)).toEqual(["rest", "rest"]);
   });
 
   it("reports a bad ref's error without failing the whole comparison", async () => {
-    const northstar = merchants["northstar-running"];
+    const cadence = merchants["cadence-cycles"];
     const res = await compare(
       postJson(
         "http://test.local/api/agent/compare",
-        { items: [{ merchantId: northstar.id, productId: "np-001" }, { merchantId: northstar.id, productId: "no-such-product" }] },
+        { items: [{ merchantId: cadence.id, productId: "bike-101" }, { merchantId: cadence.id, productId: "no-such-product" }] },
         shopper,
       ),
     );

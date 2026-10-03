@@ -22,6 +22,7 @@ export function productWire(item: CatalogItem) {
     price: item.price,
     currency: item.currency,
     color: item.color ?? null,
+    image: item.image,
     quantity: item.quantity,
     shipping: item.shipping,
     returns: item.returns,

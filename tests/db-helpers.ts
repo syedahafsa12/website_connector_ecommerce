@@ -27,12 +27,12 @@ export async function createTestUser(label = "shopper"): Promise<TestUser> {
 
 let merchantsPromise: Promise<MerchantRow[]> | undefined;
 
-/** Seeds (once per test run) the 3 demo merchants and returns them, keyed by slug for convenience. */
-export async function ensureAgentMallMerchants(): Promise<Record<"northstar-running" | "vertex-athletics" | "urban-services", MerchantRow>> {
+/** Seeds (once per test run) the 2 real demo merchants and returns them, keyed by slug for convenience. */
+export async function ensureAgentMallMerchants(): Promise<Record<"cadence-cycles" | "luna-apparel", MerchantRow>> {
   merchantsPromise ??= seedAgentMallMerchants();
   const merchants = await merchantsPromise;
   const bySlug = Object.fromEntries(merchants.map((m) => [m.slug, m])) as Record<string, MerchantRow>;
-  return bySlug as Record<"northstar-running" | "vertex-athletics" | "urban-services", MerchantRow>;
+  return bySlug as Record<"cadence-cycles" | "luna-apparel", MerchantRow>;
 }
 
 /** Builds an `Authorization: Bearer <token>` header the mocked `@/server/auth/session` resolves back to that exact user. */
