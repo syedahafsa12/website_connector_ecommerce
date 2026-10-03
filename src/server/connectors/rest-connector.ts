@@ -1,5 +1,5 @@
 import type { Offer } from "@/server/offers/types";
-import { computeIsStale } from "@/server/offers/types";
+import { computeIsStale, placeholderImage } from "@/server/offers/types";
 import { scanForUntrustedContent } from "@/server/security/content-scanner";
 import type { MerchantConnector, SearchProductsInput } from "./types";
 
@@ -12,6 +12,7 @@ interface RestProductWire {
   currency: string;
   color: string | null;
   quantity: number | null;
+  image?: string;
   shipping: { isFree: boolean; cost: number | null; estimatedDays: number | null; available: boolean };
   returns: { windowDays: number | null; isFreeReturns: boolean; notes?: string };
   warranty: { months: number | null; notes?: string };
@@ -31,6 +32,7 @@ function toOffer(merchantId: string, merchantName: string, wire: RestProductWire
     description: wire.description,
     category: wire.category,
     price: { amount: wire.price, currency: wire.currency },
+    image: wire.image ?? placeholderImage(merchantId, wire.id),
     attributes: wire.color ? { color: wire.color } : {},
     availability: { inStock: (wire.quantity ?? 1) > 0, quantity: wire.quantity },
     shipping: wire.shipping,

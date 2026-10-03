@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import type { Offer } from "@/server/offers/types";
-import { computeIsStale } from "@/server/offers/types";
+import { computeIsStale, placeholderImage } from "@/server/offers/types";
 import { scanForUntrustedContent } from "@/server/security/content-scanner";
 import type { MerchantConnector, SearchProductsInput } from "./types";
 
@@ -22,6 +22,7 @@ interface SchemaOrgLd {
   "@type"?: string;
   name?: string;
   description?: string;
+  image?: string;
   offers?: SchemaOrgOffer;
   additionalProperty?: SchemaOrgProperty[];
 }
@@ -52,14 +53,16 @@ function ldToOffer(merchantId: string, merchantName: string, ld: SchemaOrgLd): O
   const retrievedAt = props.retrievedAt || new Date().toISOString();
   const windowDaysRaw = props.returnWindowDays;
   const warrantyMonthsRaw = props.warrantyMonths;
+  const productId = props.productId ?? "";
   return {
     merchantId,
     merchantName,
-    productId: props.productId ?? "",
+    productId,
     title,
     description,
     category: ld["@type"] === "Service" ? "service" : "product",
     price: { amount: Number(ld.offers?.price ?? 0), currency: ld.offers?.priceCurrency ?? "USD" },
+    image: ld.image ?? placeholderImage(merchantId, productId),
     attributes: {},
     availability: {
       inStock: ld.offers?.availability === "https://schema.org/InStock",

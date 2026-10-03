@@ -1,7 +1,7 @@
 // Shared demo-merchant catalog data. Deliberately plain data + relative
 // imports so this module loads both under Next.js and under `tsx` (the
 // standalone MCP server script for Merchant B is not part of the Next build).
-import type { Offer } from "../server/offers/types";
+import { placeholderImage, type Offer } from "../server/offers/types";
 
 export interface CatalogItem {
   productId: string;
@@ -169,6 +169,7 @@ export function catalogItemToOffer(
     description: item.description,
     category: item.category,
     price: { amount: item.price, currency: item.currency },
+    image: placeholderImage(merchantId, item.productId),
     attributes: item.color ? { color: item.color } : {},
     availability: { inStock: (item.quantity ?? 1) > 0, quantity: item.quantity },
     shipping: item.shipping,

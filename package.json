@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "migrate": "tsx scripts/migrate.ts",
     "seed": "tsx scripts/seed.ts",
+    "seed:agent-mall": "tsx scripts/seed-agent-mall.ts",
     "mcp:merchant-b": "tsx scripts/mcp-servers/merchant-b-server.ts"
   },
   "dependencies": {
