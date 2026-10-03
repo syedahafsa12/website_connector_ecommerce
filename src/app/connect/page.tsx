@@ -73,6 +73,11 @@ export default function ConnectPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const luna = process.env.NEXT_PUBLIC_LUNA_URL ?? "";
+  // Defaults to this app's own bundled demo store (same-origin, works with zero config).
+  // Set NEXT_PUBLIC_CADENCE_URL to point the shortcut at a separately-deployed
+  // Cadence Cycles instance instead (e.g. in a deployment where the bundled
+  // /demo-store route isn't the one you want shown by default).
+  const cadence = process.env.NEXT_PUBLIC_CADENCE_URL || `${origin}/demo-store`;
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -187,7 +192,7 @@ export default function ConnectPage() {
   const reset = async () => { await post("reset"); setConns([]); setTurns({}); fresh(); };
   const rediscover = () => run("rediscover", async () => { const r = await post<{ connection: View }>("rediscover", { id: sel!.id }); upsert(r.connection); });
 
-  const examples: Array<[string, string]> = [["Cadence Cycles", `${origin}/demo-store`], ...(luna ? ([["Luna Apparel", luna]] as Array<[string, string]>) : []), ["Allbirds", "https://www.allbirds.com"]];
+  const examples: Array<[string, string]> = [["Cadence Cycles", cadence], ...(luna ? ([["Luna Apparel", luna]] as Array<[string, string]>) : []), ["Allbirds", "https://www.allbirds.com"]];
   const flowAt = FLOW_AT[phase];
   const sb = sel ? badge(sel) : null;
   const money = (n?: number | null, cur?: string) => formatPrice(n, cur) ?? "—";
