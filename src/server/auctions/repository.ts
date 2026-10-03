@@ -246,10 +246,24 @@ export async function getSettlementByAuction(auctionId: string): Promise<Auction
   return queryOne<AuctionSettlementRow>(`select * from auction_orders where auction_id = $1`, [auctionId]);
 }
 
-/** RLS-scoped: returns the caller's own bids on this auction, plus every bid if the caller owns the auction's merchant (see auction_bids_read policy). */
+/**
+ * Returns the caller's own bids on this auction, plus every bid if the
+ * caller owns the auction's merchant. Explicitly filtered here rather than
+ * left to the `auction_bids_read` RLS policy alone — the role this app
+ * connects as has BYPASSRLS (confirmed live), so that policy is a no-op for
+ * this connection and an unfiltered query here would leak every bidder's
+ * identity and amount to any authenticated shopper.
+ */
 export async function listBidsForAuctionAsUser(userId: string, auctionId: string): Promise<AuctionBidRow[]> {
   return withUserScope(userId, async (client) => {
-    const res = await client.query<AuctionBidRow>(`select * from auction_bids where auction_id = $1 order by amount desc, created_at asc`, [auctionId]);
+    const res = await client.query<AuctionBidRow>(
+      `select b.* from auction_bids b
+       join auctions a on a.id = b.auction_id
+       join merchants m on m.id = a.merchant_id
+       where b.auction_id = $1 and (b.user_id = $2 or m.owner_id = $2)
+       order by b.amount desc, b.created_at asc`,
+      [auctionId, userId],
+    );
     return res.rows;
   });
 }

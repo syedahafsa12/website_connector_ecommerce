@@ -5,12 +5,26 @@
 import { NextResponse } from "next/server";
 import type { CatalogItem } from "./catalog";
 
+const STOPWORDS = new Set(["a", "an", "the", "for", "with", "and", "or", "of", "under", "over", "less", "than", "to", "me", "find", "show", "get", "want", "need"]);
+
+/**
+ * Matches on individual meaningful words from the query, not the whole
+ * phrase as one literal substring — "comfortable bicycle under $700" has no
+ * chance of matching anything as a single substring, but "bicycle" does.
+ * Still pure keyword matching, no synonyms/semantics (e.g. "gift" still
+ * won't match anything, since nothing in the catalog is described that way).
+ */
 export function findProducts(catalog: CatalogItem[], query: string | null) {
   if (!query) return catalog;
-  const q = query.toLowerCase();
-  return catalog.filter(
-    (item) => item.title.toLowerCase().includes(q) || item.category.includes(q) || (item.color ?? "").includes(q),
-  );
+  const words = query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w) && !/^\d+$/.test(w));
+  if (words.length === 0) return catalog;
+  return catalog.filter((item) => {
+    const haystack = `${item.title} ${item.description} ${item.category} ${item.color ?? ""}`.toLowerCase();
+    return words.some((w) => haystack.includes(w));
+  });
 }
 
 export function productWire(item: CatalogItem) {

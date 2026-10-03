@@ -141,7 +141,7 @@ export async function searchAcrossMerchants(
   input: SearchProductsInput,
   ctx: CapabilityCallContext,
 ): Promise<MerchantSearchResult[]> {
-  const merchants = await listMerchants();
+  const merchants = (await listMerchants()).filter((m) => m.status === "authorized");
   await recordAuditEvent({
     sessionId: ctx.sessionId,
     taskId: ctx.taskId,

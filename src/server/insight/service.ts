@@ -27,15 +27,19 @@ export async function recordInsight(input: {
 }
 
 /**
- * Deliberately does NOT filter by merchant_id in the WHERE clause — isolation
- * is enforced by the `merchant_insights_isolation` RLS policy via the
- * `app.current_merchant_id` session GUC that withMerchantScope sets. If RLS
- * were ever disabled, this query would (correctly) start returning every
- * merchant's rows, which is exactly what the isolation test checks for.
+ * Explicitly filtered by merchant_id — this cannot rely on the
+ * `merchant_insights_isolation` RLS policy alone, because the role this app
+ * connects as has BYPASSRLS (confirmed live: `select rolbypassrls from
+ * pg_roles where rolname = current_user` returns true for the configured
+ * DATABASE_URL), which makes every RLS policy in this schema a no-op for
+ * this connection regardless of the `app.current_merchant_id` GUC. Without
+ * this WHERE clause, any merchant owner could read every other merchant's
+ * insight rows through /api/merchants/:id/insights and
+ * /api/merchants/:id/analytics.
  */
 export async function getMerchantInsights(merchantId: string) {
   return withMerchantScope(merchantId, async (client) => {
-    const res = await client.query(`select * from merchant_insights order by created_at desc`);
+    const res = await client.query(`select * from merchant_insights where merchant_id = $1 order by created_at desc`, [merchantId]);
     return res.rows;
   });
 }
