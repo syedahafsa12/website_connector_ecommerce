@@ -12,7 +12,11 @@ export type ShoppingEventType =
   | "CHECKOUT_STARTED"
   | "CHECKOUT_ABANDONED"
   | "PURCHASE_APPROVED"
-  | "PURCHASE_COMPLETED";
+  | "PURCHASE_COMPLETED"
+  | "MERCHANT_INTERACTION"
+  | "AUCTION_VIEW"
+  | "AUCTION_BID"
+  | "AUCTION_BUY_NOW";
 
 /** Feeds the `merchant_analytics` view (migrations/002) — every number there is a real count of these rows. */
 export async function recordShoppingEvent(input: {

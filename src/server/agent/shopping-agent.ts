@@ -4,6 +4,9 @@ import { callCapability, searchAcrossMerchants, type CapabilityCallContext } fro
 import { recordInsight } from "@/server/insight/service";
 import type { Offer } from "@/server/offers/types";
 import { matchOffer, parseRequirements, type Requirements } from "@/server/offers/matcher";
+import { searchAuctions, getAuctionById } from "@/server/auctions/service";
+import { getMerchantById } from "@/server/merchants/repository";
+import { toPublicAuction } from "@/server/auctions/view";
 import type { ContentBlock, ModelMessage, ModelProvider } from "./model-provider";
 import { AGENT_TOOLS, SYSTEM_PROMPT } from "./tools";
 
@@ -117,6 +120,24 @@ export class ShoppingAgent {
       const call = await callCapability(name as never, String(input.merchantId), input, ctx);
       if (call.ok && name === "get_product") offerCache.set(`${input.merchantId}:${input.productId}`, call.result as Offer);
       return call.ok ? call.result : { error: call.reason };
+    }
+
+    if (name === "search_auctions") {
+      const auctions = await searchAuctions({ query: input.query as string | undefined, maxPrice: input.maxPrice as number | undefined, onlyOpen: input.onlyOpen as boolean | undefined });
+      const views = [];
+      for (const auction of auctions) {
+        const merchant = await getMerchantById(auction.merchant_id);
+        if (merchant) views.push(await toPublicAuction(auction, merchant));
+      }
+      return { auctions: views };
+    }
+
+    if (name === "get_auction") {
+      const auction = await getAuctionById(String(input.auctionId));
+      if (!auction) return { error: "Auction not found." };
+      const merchant = await getMerchantById(auction.merchant_id);
+      if (!merchant) return { error: "Auction not found." };
+      return { auction: await toPublicAuction(auction, merchant) };
     }
 
     if (name === "place_order") {
