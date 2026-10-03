@@ -1,6 +1,7 @@
-import { query, withMerchantScope } from "@/server/db/pool";
+import { withMerchantScope, withPlatformScope } from "@/server/db/pool";
 import { recordAuditEvent } from "@/server/audit/log";
 
+/** System-of-record write on the caller's behalf, after the request is already authorized — see recordShoppingEvent for why this needs withPlatformScope rather than the unscoped `query()`. */
 export async function recordInsight(input: {
   sessionId: string;
   merchantId: string;
@@ -8,10 +9,12 @@ export async function recordInsight(input: {
   decision: "selected" | "rejected";
   reasons: string[];
 }): Promise<void> {
-  await query(
-    `insert into merchant_insights (session_id, merchant_id, requirements, decision, reasons)
-     values ($1,$2,$3,$4,$5)`,
-    [input.sessionId, input.merchantId, JSON.stringify(input.requirements), input.decision, input.reasons],
+  await withPlatformScope((client) =>
+    client.query(
+      `insert into merchant_insights (session_id, merchant_id, requirements, decision, reasons)
+       values ($1,$2,$3,$4,$5)`,
+      [input.sessionId, input.merchantId, JSON.stringify(input.requirements), input.decision, input.reasons],
+    ),
   );
   await recordAuditEvent({
     merchantId: input.merchantId,

@@ -127,6 +127,17 @@ export interface PlaceBidOutcome {
  * state, merchant identity) because those can change between approval and
  * execution and must never be trusted from the client.
  */
+/** Shared by placeBid's transactional validator and the read-only /estimate endpoint, so both agree on exactly what makes a bid amount valid. */
+function checkBidEligibility(auction: AuctionRow, highestBidAmount: number | null, amount: number): { ok: true; isFirstBid: boolean } | { ok: false; reason: string } {
+  if (!isLive(auction)) return { ok: false, reason: "Auction is not open for bidding." };
+  if (auction.ends_at && new Date(auction.ends_at).getTime() <= Date.now()) return { ok: false, reason: "Auction has expired." };
+  const floor = highestBidAmount ?? Number(auction.starting_price);
+  if (!(amount > floor)) {
+    return { ok: false, reason: highestBidAmount === null ? "Bid must exceed the starting price." : "Bid must exceed the current highest bid." };
+  }
+  return { ok: true, isFirstBid: highestBidAmount === null };
+}
+
 export async function placeBid(userId: string, auctionId: string, amount: number, currency?: string): Promise<PlaceBidOutcome> {
   if (!(amount > 0)) throw new AuctionValidationError("Bid amount must be positive.");
 
@@ -136,15 +147,9 @@ export async function placeBid(userId: string, auctionId: string, amount: number
   if (merchant?.owner_id === userId) throw new AuctionAuthorizationError("A merchant cannot bid on its own auction.");
   if (currency && currency !== preAuction.currency) throw new AuctionValidationError(`Currency must be ${preAuction.currency}.`);
 
-  const result = await repo.placeBidTransactional(auctionId, userId, amount, currency ?? preAuction.currency, (auction, highestBidAmount) => {
-    if (!isLive(auction)) return { ok: false, reason: "Auction is not open for bidding." };
-    if (auction.ends_at && new Date(auction.ends_at).getTime() <= Date.now()) return { ok: false, reason: "Auction has expired." };
-    const floor = highestBidAmount ?? Number(auction.starting_price);
-    if (!(amount > floor)) {
-      return { ok: false, reason: highestBidAmount === null ? "Bid must exceed the starting price." : "Bid must exceed the current highest bid." };
-    }
-    return { ok: true, isFirstBid: highestBidAmount === null };
-  });
+  const result = await repo.placeBidTransactional(auctionId, userId, amount, currency ?? preAuction.currency, (auction, highestBidAmount) =>
+    checkBidEligibility(auction, highestBidAmount, amount),
+  );
 
   if ("error" in result) throw new AuctionValidationError(result.error);
 
@@ -285,6 +290,48 @@ async function markSettled(auctionId: string): Promise<AuctionRow | undefined> {
   return withPlatformScope((client) =>
     client.query<AuctionRow>(`update auctions set status = 'settled', updated_at = now() where id = $1 and status = 'ended' returning *`, [auctionId]).then((r) => r.rows[0]),
   );
+}
+
+export interface AuctionEstimate {
+  currency: string;
+  itemAmount: number;
+  shippingAmount: number;
+  taxAmount: number;
+  totalAmount: number;
+}
+
+/**
+ * Read-only. Validates the proposed action exactly the way placeBid/buyNow
+ * would (same eligibility checks, same TaxProvider/ShippingCalculator — see
+ * tax/provider.ts's estimateTotal, not duplicated here), but never writes
+ * anything: no bid row, no auction state change, no settlement, no visit.
+ * This is what the frontend calls to show the breakdown before the user
+ * approves a bid or Buy Now.
+ */
+export async function estimateAuctionAction(auctionId: string, action: "bid" | "buy_now", amount?: number): Promise<AuctionEstimate> {
+  const auction = await requireAuction(auctionId);
+
+  let itemAmount: number;
+  if (action === "bid") {
+    if (amount === undefined || !(amount > 0)) throw new AuctionValidationError("Bid amount must be positive.");
+    const highest = await repo.getHighestBid(auctionId);
+    const verdict = checkBidEligibility(auction, highest ? Number(highest.amount) : null, amount);
+    if (!verdict.ok) throw new AuctionValidationError(verdict.reason);
+    itemAmount = amount;
+  } else {
+    if (!isLive(auction)) throw new AuctionValidationError("Auction is not open.");
+    if (auction.buy_now_price === null) throw new AuctionValidationError("This auction has no Buy Now price.");
+    itemAmount = Number(auction.buy_now_price);
+  }
+
+  const breakdown = await estimateTotal({ amount: itemAmount, currency: auction.currency, merchantId: auction.merchant_id });
+  return {
+    currency: breakdown.currency,
+    itemAmount: breakdown.subtotal,
+    shippingAmount: breakdown.shipping.amount,
+    taxAmount: breakdown.tax.amount,
+    totalAmount: breakdown.total,
+  };
 }
 
 export { searchAuctions, getAuctionById, getHighestBid, listBidsForAuctionAsUser, getSettlementByAuction } from "./repository";

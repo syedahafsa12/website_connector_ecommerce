@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuthenticatedUser, UnauthorizedError } from "@/server/auth/session";
 import { getApproval } from "@/server/approvals/repository";
-import { findOrCreateActiveVisitPackage, recordUniqueVisit } from "@/server/visits/repository";
+import { recordMerchantVisit } from "@/server/visits/repository";
 import { recordShoppingEvent } from "@/server/shopping-events/log";
 
 const schema = z.object({ approvalId: z.string().uuid() });
@@ -28,14 +28,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    const initialPackage = await findOrCreateActiveVisitPackage(params.id);
-    const { visit, isNewUniqueVisit, visitPackage } = await recordUniqueVisit({
-      packageId: initialPackage.id,
+    const result = await recordMerchantVisit({
       merchantId: params.id,
       visitorSubjectId: user.id,
       sessionId: approval.session_id,
       approvalId: approval.id,
     });
+    if ("rejected" in result) {
+      return NextResponse.json({ error: result.reason }, { status: 409 });
+    }
+    const { visit, isNewUniqueVisit, visitPackage } = result;
 
     await recordShoppingEvent({
       sessionId: approval.session_id,
