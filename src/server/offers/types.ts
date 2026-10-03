@@ -47,6 +47,7 @@ export interface Offer {
   description: string;
   category: "product" | "service";
   price: Money;
+  image: string;
   attributes: Record<string, string>;
   availability: InventoryInfo;
   shipping: ShippingInfo;
@@ -62,4 +63,15 @@ export const STALE_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
 
 export function computeIsStale(retrievedAt: string, now: Date = new Date()): boolean {
   return now.getTime() - new Date(retrievedAt).getTime() > STALE_THRESHOLD_MS;
+}
+
+/**
+ * None of the demo connectors' wire formats carry a real product photo, so
+ * every normalized offer gets a deterministic placeholder (same merchant +
+ * product id always resolves to the same image) rather than a null the
+ * frontend has to special-case. A connector can still provide a real `image`
+ * on its wire payload in the future — see each connector's `toOffer`.
+ */
+export function placeholderImage(merchantId: string, productId: string): string {
+  return `https://picsum.photos/seed/${encodeURIComponent(`${merchantId}-${productId}`)}/480/480`;
 }
