@@ -14,7 +14,7 @@ export function getModelProvider(): ModelProvider {
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
     if (!apiKey) throw new Error("CLOUDFLARE_API_KEY is not set");
     if (!accountId) throw new Error("CLOUDFLARE_ACCOUNT_ID is not set");
-    return new CloudflareModelProvider(accountId, apiKey, process.env.CLOUDFLARE_MODEL ?? "@cf/meta/llama-3.1-8b-instruct");
+    return new CloudflareModelProvider(accountId, apiKey, process.env.CLOUDFLARE_MODEL ?? "@cf/meta/llama-3.3-70b-instruct-fp8-fast");
   }
   throw new Error(`Unknown MODEL_PROVIDER '${kind}'`);
 }

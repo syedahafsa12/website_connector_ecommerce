@@ -16,7 +16,7 @@ function toCfMessages(system: string, messages: ModelMessage[]): CfOpenAiMessage
       const toolCalls = m.content.filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use");
       out.push({
         role: "assistant",
-        content: text,
+        content: text ?? "", // Cloudflare's schema rejects content: null even when tool_calls is present
         tool_calls: toolCalls.length
           ? toolCalls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.input) } }))
           : undefined,
@@ -48,10 +48,15 @@ export class CloudflareModelProvider implements ModelProvider {
   ) {}
 
   async complete(req: ModelCompletionRequest): Promise<ModelCompletionResponse> {
-    const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${this.accountId}/ai/run/${this.model}`, {
+    // The per-model /ai/run/{model} endpoint's request schema rejects assistant
+    // tool_calls + follow-up tool-role messages for this model (confirmed live);
+    // /ai/v1/chat/completions is Cloudflare's actual OpenAI-compatible surface
+    // and supports full multi-turn tool conversations.
+    const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${this.accountId}/ai/v1/chat/completions`, {
       method: "POST",
       headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
+        model: this.model,
         messages: toCfMessages(req.system, req.messages),
         tools: req.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.inputSchema } })),
       }),
@@ -62,10 +67,10 @@ export class CloudflareModelProvider implements ModelProvider {
       throw new Error(`Cloudflare Workers AI request failed: ${res.status} ${body.slice(0, 300)}`);
     }
 
-    const json = (await res.json()) as { success: boolean; errors?: Array<{ message: string }>; result?: { choices?: Array<{ message: CfOpenAiMessage; finish_reason: string }> } };
-    if (!json.success) throw new Error(`Cloudflare Workers AI error: ${json.errors?.map((e) => e.message).join("; ") ?? "unknown"}`);
+    const json = (await res.json()) as { error?: { message: string }; choices?: Array<{ message: CfOpenAiMessage; finish_reason: string }> };
+    if (json.error) throw new Error(`Cloudflare Workers AI error: ${json.error.message}`);
 
-    const choice = json.result?.choices?.[0];
+    const choice = json.choices?.[0];
     if (!choice) throw new Error("Cloudflare Workers AI returned no choices.");
 
     const content: ContentBlock[] = [];
